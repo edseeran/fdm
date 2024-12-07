@@ -72,11 +72,17 @@ watch([circuit], () => {
 
 // Table headers
 const headers = [
-  { title: "No.", key: "id", sortable: false },
-  { title: "Name", key: "name", sortable: false },
-  { title: "Inbound", key: "inbound_rate", sortable: false },
-  { title: "Outbound", key: "outbound_rate", sortable: false },
-  { title: "Time", key: "time", sortable: false },
+  { title: "Identity", key: "id", sortable: false },
+  { title: "Usage", key: "usage", sortable: false },
+  { title: "Data Plan", key: "data_plan", sortable: false },
+  { title: "Subscriber's Name", key: "subscribers_name", sortable: false },
+  { title: "OLT Name", key: "olt_name", sortable: false },
+  { title: "NAP Code", key: "nap_code", sortable: false },
+  { title: "Site Name", key: "nap_code", sortable: false },
+  { title: "Port 1", key: "port_one", sortable: false },
+  { title: "Port 2", key: "port_two", sortable: false },
+  { title: "Port 3", key: "port_three", sortable: false },
+  { title: "Port 4", key: "port_four", sortable: false },
 ];
 
 // Computed property for dynamic headers
@@ -371,7 +377,7 @@ const exportCSV = (data) => {
     <!-- Data Table Section -->
     <VCard class="mb-6">
       <VCardItem class="pb-4">
-        <VCardTitle>IPM Data Records</VCardTitle>
+        <VCardTitle>FDM Data Records</VCardTitle>
       </VCardItem>
 
       <VCardText class="d-flex flex-wrap gap-4">
@@ -396,10 +402,7 @@ const exportCSV = (data) => {
             <AppTextField v-model="searchQuery" placeholder="Search by Name" />
           </div>
         </div>
-
-        <div>
-          <v-btn @click="exportCSV(formattedData)" class="" :disabled="!isFiltered">Export</v-btn>
-        </div>
+        
       </VCardText>
 
       <VDivider />
