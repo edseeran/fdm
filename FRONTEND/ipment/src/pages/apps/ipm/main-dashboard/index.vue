@@ -1,396 +1,137 @@
 <script setup>
-import { ref, computed, watch, onMounted } from "vue";
-import { format, startOfDay, isAfter, isBefore, isSameDay, endOfDay } from 'date-fns';
-import ChartJsBarChart from "@/views/apps/ipm/LineChart.vue";
-import axios from "axios";
-import endpoints from "../../../../utils/endpoint";
+import { ref, computed, watch } from "vue";
 import { useToast } from "vue-toastification";
-import { Chart, Filler, registerables } from "chart.js";
 
-// Register the Chart.js components and Filler plugin
-Chart.register(...registerables, Filler);
+// Dummy data array
+const dummyData = ref([
+  {
+    id:"485754434393989E",
+    usage:"22.5 TB",
+    data_plan:"FTTX_600MB",
+    subscribers_name:"ENCARNACION EDNA",
+    olt_name:"TAG001-OLT-03",
+    nap_code:"TAG001 LP124 NP1-2",
+    site_name:"BALIBAGO - MIGRATE ",
+    number_of_hosts:"8",
+    user_idleness:"1",
+    intensive_downloading_user:"0.00%",
+    total_data_received:"22.5 TB",
+    total_data_sent:"9.7 TB",
+  },
+ 
+]);
+
+// Control the state of the drawer from the parent component
+const isAddDrawerOpen = ref(false);
+const openAddDrawer = () => {
+  isAddDrawerOpen.value = true;
+};
+
+const isUpdateDrawerOpen = ref(false);
+const openUpdateDrawer = () => {
+  isUpdateDrawerOpen.value = true;
+};
+
+const showModal = ref(false);
+const selectedItem = ref(null);
+
+const openModal = (item) => {
+  selectedItem.value = item;
+  showModal.value = true;
+};
 
 // V-Models for filter
 const toast = useToast();
-const circuit = ref("MC038688-BIR-CER/GigabitEthernet0/0/1");
+const status = ref("down");
 const isFiltersExpanded = ref(true);
-const selectedRows = ref([]);
-const isLoading = ref(false);
-const circuitList = ref([]);
-const unitOfMeasurement = ref(null);
 const isFiltered = ref(false);
-const hasCircuit = ref(true);
+const selectedRows = ref([]);
 
-// Human-readable date format
-const tempStartDate = ref('');
-const tempEndDate = ref('');
-
-const startDate = ref('');
-const endDate = ref('');
-
-// Convert human-readable date back to YYYY-MM-DD for query
-watch([tempStartDate, tempEndDate], () => {
-  if (tempStartDate.value && tempEndDate.value) {
-    startDate.value = format(new Date(tempStartDate.value), "yyyy-MM-dd HH:mm:ss");
-    endDate.value = format(new Date(tempEndDate.value), "yyyy-MM-dd HH:mm:ss");
-  }
-});
-
-// Set initial dates when the component mounts
-onMounted(async () => {
-  const today = new Date();
-
-  // Set the initial start date to today at 00:00:00
-  const initialStart = new Date(today);
-  initialStart.setHours(0, 0, 0, 0);
-
-  // Set the initial end date to today at 23:59:59
-  const initialEnd = new Date(today);
-  initialEnd.setHours(23, 59, 59, 999);
-
-  // Initialize both startDate and tempStartDate
-  startDate.value = format(initialStart, "yyyy-MM-dd HH:mm:ss");
-  endDate.value = format(initialEnd, "yyyy-MM-dd HH:mm:ss");
-
-  // Set human-readable dates
-  tempStartDate.value = format(initialStart, "MMMM d, yyyy HH:mm");
-  tempEndDate.value = format(initialEnd, "MMMM d, yyyy HH:mm");
-
-  
- await fetchData();
-});
-
-watch([circuit], () => {
-  if (circuit.value === null) {  // Use '===' for comparison
-    hasCircuit.value = false;
-    console.log(hasCircuit.value);
-  } else {
-    hasCircuit.value = true;
-  }
-});
-
+const statusFilter = [
+  { value: "down", title: "Down" },
+  { value: "warning", title: "Warning" },
+];
 
 // Table headers
 const headers = [
-  { title: "Identity", key: "id", sortable: false },
-  { title: "Usage", key: "usage", sortable: false },
-  { title: "Data Plan", key: "data_plan", sortable: false },
-  { title: "Subscriber's Name", key: "subscribers_name", sortable: false },
-  { title: "OLT Name", key: "olt_name", sortable: false },
-  { title: "NAP Code", key: "nap_code", sortable: false },
-  { title: "Site Name", key: "nap_code", sortable: false },
-  { title: "Port 1", key: "port_one", sortable: false },
-  { title: "Port 2", key: "port_two", sortable: false },
-  { title: "Port 3", key: "port_three", sortable: false },
-  { title: "Port 4", key: "port_four", sortable: false },
+  { title: "Identity", key: "id", sortable: true },
+  { title: "Usage", key: "usage", sortable: true },
+  { title: "Data Plan", key: "data_plan", sortable: true },
+  { title: "Subscriber's Name", key: "subscribers_name", sortable: true },
+  { title: "OLT Name", key: "olt_name", sortable: true },
+  { title: "NAP Code", key: "nap_code", sortable: true },
+  { title: "Site Name", key: "site_name", sortable: true },
+  { title: "Number Of Hosts", key: "number_of_hosts", sortable: true },
+  { title: "User Idleness", key: "user_idleness", sortable: true },
+  { title: "Intensive Downloading User", key: "intensive_downloading_user", sortable: true },
+  { title: "Total Data Received", key: "total_data_received", sortable: true },
+  { title: "Total Data Sent", key: "total_data_sent", sortable: true },
 ];
-
-// Computed property for dynamic headers
-const dynamicHeaders = computed(() =>
-  headers.map((header) => {
-    if (header.key === "inbound_rate" || header.key === "outbound_rate") {
-      return {
-        ...header,
-        title: `${header.title} (${unitOfMeasurement.value}/s)`,
-      };
-    }
-    return header;
-  })
-);
 
 // Pagination logic
 const itemsPerPage = ref(10);
 const page = ref(1);
 const searchQuery = ref("");
 
-const formattedData = computed(() => {
-  return fetchedData.value.map((item) => ({
-    ...item,
-    // Format the date to 'yyyy-MM-dd HH:mm:ss' in UTC
-    time: new Date(item.time).toISOString().replace("T", " ").split(".")[0],
-  }));
-});
-
-// Filter the records based on the selected start and end dates
+// Display all records with a search filter based on the data in the headers
 const filteredData = computed(() => {
-  return formattedData.value.filter((item) => {
-    // Parse the item's time as a date object in local time
-    const itemDate = new Date(item.time); // Converts to local time automatically
+  if (!searchQuery.value) {
+    return dummyData.value;
+  }
 
-    // Normalize the start and end dates to the start of the day (local time)
-    const start = startDate.value ? startOfDay(new Date(startDate.value)) : null;
-    const end = endDate.value ? startOfDay(new Date(endDate.value)) : null;
+  const lowerCaseQuery = searchQuery.value.toLowerCase();
+  const headerKeys = headers.map(header => header.key); // Extract the keys from headers
 
-    // Compare the dates without timezone interference
-    if (start && end) {
-      return (
-        (isAfter(itemDate, start) || isSameDay(itemDate, start)) &&
-        (isBefore(itemDate, end) || isSameDay(itemDate, end))
-      );
-    } else if (start) {
-      return isAfter(itemDate, start) || isSameDay(itemDate, start);
-    } else if (end) {
-      return isBefore(itemDate, end) || isSameDay(itemDate, end);
-    } else {
-      return true; // No start or end date, return all records
-    }
+  return dummyData.value.filter((item) => {
+    // Check if any column defined in headers contains the search query
+    return headerKeys.some((key) => {
+      const field = item[key];
+      if (field && typeof field === 'string') {
+        return field.toLowerCase().includes(lowerCaseQuery);
+      }
+      return false;
+    });
   });
 });
 
 
-const fetchCircuits = async () => {
-  isLoading.value = true;
-  try {
-    const response = await axios.get(endpoints.ipmListCircuit, {
-      headers: {
-        "Content-Type": "application/json", // Ensure the CSRF token is defined and valid
-        Accept: "application/json",
-        "Cache-Control": "no-cache",
-      },
-      withCredentials: true, // Ensure cookies are sent with the request
-    });
-    isLoading.value = false;
-    circuitList.value = response.data;
-  } catch (error) {
-    console.error("Fetch error:", error);
-    toast.error("Error fetching records.");
-    isLoading.value = false;
-  }
-};
-
-const fetchUnit = async () => {
-  isLoading.value = true;
-  try {
-    const response = await axios.get(endpoints.ipmListConfig, {
-      headers: {
-        "Content-Type": "application/json", // Ensure the CSRF token is defined and valid
-        Accept: "application/json",
-        "Cache-Control": "no-cache",
-      },
-      withCredentials: true, // Ensure cookies are sent with the request
-    });
-    isLoading.value = false;
-    unitOfMeasurement.value = response.data[0].unit;
-  } catch (error) {
-    console.error("Fetch error:", error);
-    toast.error("Error fetching records.");
-    isLoading.value = false;
-  }
-};
-
-await fetchUnit();
-await fetchCircuits();
-
-// Filter records based on search query
-const filterRecords = (records, query) => {
-  const lowerCaseQuery = query.toLowerCase();
-  return records.filter((record) =>
-    record.name.toLowerCase().includes(lowerCaseQuery)
-  );
-};
-
 // Paginated records computed property
 const paginatedRecords = computed(() => {
-  const records = filteredData.value;
-  const filteredRecords = filterRecords(records, searchQuery.value);
   const start = (page.value - 1) * itemsPerPage.value;
   const end = start + itemsPerPage.value;
-  return filteredRecords.slice(start, end);
+  return filteredData.value.slice(start, end);
 });
 
-const totalRecords = computed(
-  () => filterRecords(filteredData.value, searchQuery.value).length
-);
-
-// Data for Line Chart
-const chartLabels = computed(() =>
-  filteredData.value.map((item) => {
-    // Convert the item's time to a Date object in UTC and extract only the date part (YYYY-MM-DD)
-    return new Date(item.time).toISOString().split("T")[0];
-  })
-);
-
-const chartDatasets = computed(() => [
-  {
-    label: "Inbound",
-    data: filteredData.value.map((item) => parseFloat(item.inbound_rate) || 0),
-    borderColor: "#36A2EB",
-    backgroundColor: "#36A2EB",
-    fill: false,
-    tension: 0.5,
-  },
-  {
-    label: "Outbound",
-    data: filteredData.value.map((item) => parseFloat(item.outbound_rate) || 0),
-    borderColor: "#FF6384",
-    backgroundColor: "#FF6384",
-    fill: false,
-    tension: 0.5,
-  },
-]);
+const totalRecords = computed(() => filteredData.value.length);
 
 const fetchedData = ref([]);
 
 // Apply filters (this is automatic in this implementation)
-const fetchData = async () => {
+const applyFilters = () => {
   try {
-    const response = await axios.get(endpoints.ipmListData, {
-      params: {
-        start_date: startDate.value,
-        end_date: endDate.value,
-        circuit: circuit.value,
-      },
-      headers: {
-        "Content-Type": "application/json", // Ensure the CSRF token is defined and valid
-        Accept: "application/json",
-        "Cache-Control": "no-cache",
-      },
-      withCredentials: true, // Ensure cookies are sent with the request
-    });
-
-    fetchedData.value = response.data; // Correct way to update a ref
-    toast.success("Records fetched successfully!");
+    fetchedData.value = dummyData.value; // Directly set fetchedData to dummyData
     isFiltered.value = true;
+    toast.success("Records loaded!");
   } catch (error) {
-    console.error("Fetch error:", error);
-    toast.error("Error fetching records!");
+    console.error("Error using dummy data:", error);
+    toast.error("Error loading dummy data!");
   }
 };
-
-// Apply filters (this is automatic in this implementation)
-const applyFilters = async () => {
-  try {
-    const response = await axios.get(endpoints.ipmListData, {
-      params: {
-        start_date: startDate.value,
-        end_date: endDate.value,
-        circuit: circuit.value,
-      },
-      headers: {
-        "Content-Type": "application/json", // Ensure the CSRF token is defined and valid
-        Accept: "application/json",
-        "Cache-Control": "no-cache",
-      },
-      withCredentials: true, // Ensure cookies are sent with the request
-    });
-
-    fetchedData.value = response.data; // Correct way to update a ref
-    toast.success("Records fetched successfully!");
-    isFiltered.value = true;
-  } catch (error) {
-    console.error("Fetch error:", error);
-    toast.error("Error fetching records!");
-  }
-};
-
-const exportCSV = (data) => {
-  // Get headers, excluding 'id'
-  const headers = Object.keys(data[0]).filter(header => header !== 'id').join(',');
-
-  // Map through the data and exclude 'id' from the rows
-  const rows = data.map(row => {
-    return [
-      row.name,
-      `${row.inbound_rate} ${unitOfMeasurement.value}/s`, // Append unit dynamically
-      `${row.outbound_rate} ${unitOfMeasurement.value}/s`, // Append unit dynamically
-      row.time,
-    ].join(',');
-  }).join('\n');
-
-  const csvContent = `${headers}\n${rows}`;
-  const blob = new Blob([csvContent], { type: 'text/csv' });
-  const url = URL.createObjectURL(blob);
-
-  const link = document.createElement('a');
-  link.href = url;
-  link.download = 'export.csv';
-  link.click();
-
-  URL.revokeObjectURL(url); // Clean up after download
-};
-
 </script>
 
 <template>
   <section>
-    <!-- Filters Section -->
-    <VExpansionPanels v-model="isFiltersExpanded" class="mb-6">
-      <VExpansionPanel>
-        <VExpansionPanelTitle>Filters</VExpansionPanelTitle>
-        <VExpansionPanelText>
-          <v-container fluid>
-            <v-row>
-              <v-col cols="12" md="3">
-                <AppDateTimePicker
-                  v-model="tempStartDate"
-                  :config="{ enableTime: true, dateFormat: 'F j, Y H:i' }"
-                  label="Start Date"
-                  outlined
-                />
-              </v-col>
-              <v-col cols="12" md="3">
-                <AppDateTimePicker
-                  v-model="tempEndDate"
-                  :config="{ enableTime: true, dateFormat: 'F j, Y H:i' }"
-                  label="End Date"
-                  outlined
-                />
-              </v-col>
-              <v-col cols="12" md="3" class="mt-6">
-                <v-autocomplete
-                  v-model="circuit"
-                  label="Circuit"
-                  :items="circuitList"
-                  outlined
-                  clearable
-                />
-              </v-col>
-              <v-col cols="12" md="3">
-                <v-btn block @click="applyFilters" class="mt-6"
-                  >Apply Filter</v-btn
-                >
-              </v-col>
-              <!-- <v-col cols="12" md="3">
-                <v-btn block @click="clearFilters" class="mt-6">Reset Filter</v-btn>
-              </v-col> -->
-            </v-row>
-          </v-container>
-        </VExpansionPanelText>
-      </VExpansionPanel>
-    </VExpansionPanels>
-
-    <!-- Chart Section -->
-    <VCard class="mb-6" v-if="hasCircuit">
-      <VCardItem class="pb-4">
-        <VCardTitle>Line Graph: Device Interface Data</VCardTitle>
-      </VCardItem>
-
-      <VCardText>
-        <ChartJsBarChart
-          :labels="chartLabels"
-          :datasets="chartDatasets"
-          style="max-width: 100%; height: auto"
-        />
-      </VCardText>
-    </VCard>
-
     <!-- Data Table Section -->
     <VCard class="mb-6">
       <VCardItem class="pb-4">
-        <VCardTitle>FDM Data Records</VCardTitle>
+        <VCardTitle>Fraud Detection and Management Records</VCardTitle>
       </VCardItem>
 
       <VCardText class="d-flex flex-wrap gap-4">
         <div class="me-3 d-flex gap-3">
           <AppSelect
             :model-value="itemsPerPage"
-            :items="[
-              { value: 10, title: '10' },
-              { value: 25, title: '25' },
-              { value: 50, title: '50' },
-              { value: 100, title: '100' },
-              { value: -1, title: 'All' },
-            ]"
+            :items="[{ value: 10, title: '10' }, { value: 25, title: '25' }, { value: 50, title: '50' }, { value: 100, title: '100' }, { value: -1, title: 'All' }]"
             @update:model-value="itemsPerPage = parseInt($event, 10)"
           />
         </div>
@@ -398,11 +139,12 @@ const exportCSV = (data) => {
         <VSpacer />
 
         <div class="app-user-search-filter d-flex align-center flex-wrap gap-4">
+          <!-- Search -->
           <div style="inline-size: 15.625rem">
-            <AppTextField v-model="searchQuery" placeholder="Search by Name" />
+            <AppTextField v-model="searchQuery" placeholder="Search Record" />
           </div>
+
         </div>
-        
       </VCardText>
 
       <VDivider />
@@ -414,20 +156,72 @@ const exportCSV = (data) => {
         :items="paginatedRecords"
         item-value="id"
         :items-length="totalRecords"
-        :headers="dynamicHeaders"
+        :headers="headers"
         class="text-no-wrap"
         loading-text="Fetching records, please wait."
       >
+
         <!-- Pagination -->
         <template #bottom>
-          <TablePagination
-            v-model:page="page"
-            :items-per-page="itemsPerPage"
-            :total-items="totalRecords"
-          />
+            <TablePagination
+              v-model:page="page"
+              :items-per-page="itemsPerPage"
+              :total-items="totalRecords"
+            />
+        </template>  
+
+        <!-- Other table columns -->
+        <template #item.actions="{ item }">
+
+          <IconBtn @click="openModal(item)" title="More Information">
+            <VIcon icon="tabler-eye" />
+          </IconBtn>
+
+          <IconBtn @click="openUpdateDrawer" title="Edit Utilization">
+            <VIcon icon="tabler-pencil" />
+          </IconBtn>
+
+          <IconBtn title="Delete Record">
+            <VIcon icon="tabler-trash" />
+          </IconBtn>
+
         </template>
       </VDataTableServer>
     </VCard>
+
+    <!-- Modal for showing detailed item data -->
+    <v-dialog v-model="showModal" max-width="600" max-length="200">
+      <v-card>
+        <v-card-title class="mt-6 ml-2">Details for {{ selectedItem?.name }}</v-card-title>
+        <v-card-text>
+          <div v-if="selectedItem">
+            <p><strong>Utility:</strong> {{ selectedItem.util_type }}</p>
+            <p><strong>Name:</strong> {{ selectedItem.name }}</p>
+            <p><strong>Sensor ID:</strong> {{ selectedItem.sensor_id }}</p>
+            <p><strong>Capacity:</strong> {{ selectedItem.capacity }}</p>
+            <p><strong>Status:</strong> {{ selectedItem.status }}</p>
+            <p><strong>Group:</strong> {{ selectedItem.group }}</p>
+            <p><strong>Ping:</strong> {{ selectedItem.ping }}</p>
+            <p><strong>In Volume:</strong> {{ selectedItem.in_volume }}</p>
+            <p><strong>In Speed:</strong> {{ selectedItem.in_speed }}</p>
+            <p><strong>Out Volume:</strong> {{ selectedItem.out_volume }}</p>
+            <p><strong>Out Speed:</strong> {{ selectedItem.out_speed }}</p>
+            <p><strong>Total Volume:</strong> {{ selectedItem.total_volume }}</p>
+            <p><strong>Total Speed:</strong> {{ selectedItem.total_speed }}</p>
+            <p><strong>In Volume Utilization:</strong> {{ selectedItem.in_volume_utilization }}</p>
+            <p><strong>In Speed Utilization:</strong> {{ selectedItem.in_speed_utilization }}</p>
+            <p><strong>Out Volume Utilization:</strong> {{ selectedItem.out_volume_utilization }}</p>
+            <p><strong>Out Speed Utilization:</strong> {{ selectedItem.out_speed_utilization }}</p>
+            <p><strong>Total Volume Utilization:</strong> {{ selectedItem.total_volume_utilization }}</p>
+            <p><strong>Total Speed Utilization:</strong> {{ selectedItem.total_speed_utilization }}</p>
+          </div>
+        </v-card-text>
+        <v-card-actions>
+          <v-btn color="primary" text @click="showModal = false">Close</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
   </section>
 </template>
 
@@ -461,6 +255,6 @@ const exportCSV = (data) => {
 @media (max-width: 768px) {
   .styled-table {
     font-size: 12px;
-  }
+}
 }
 </style>
